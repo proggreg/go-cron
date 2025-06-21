@@ -1,0 +1,57 @@
+# Go Cron Backend
+
+A simple Go backend to manage long-running tasks (jobs) on a cron schedule, with a REST API to manage jobs.
+
+## Features
+- Schedule jobs using cron expressions
+- Create, list, update, delete, and trigger jobs via HTTP API
+- In-memory job storage (no persistence)
+
+## Requirements
+- Go 1.21 or later
+
+## Setup
+
+1. Install dependencies:
+   ```sh
+   go mod tidy
+   ```
+
+2. Run the server:
+   ```sh
+   go run main.go
+   ```
+
+The server will start on `http://localhost:8080`.
+
+## API Endpoints
+
+- `GET    /jobs`           — List all jobs
+- `POST   /jobs`           — Create a new job
+- `GET    /jobs/{id}`      — Get a job by ID
+- `PUT    /jobs/{id}`      — Update a job
+- `DELETE /jobs/{id}`      — Delete a job
+- `POST   /jobs/{id}/run`  — Trigger a job immediately
+
+### Example Job JSON
+```
+{
+  "name": "Example Job",
+  "schedule": "@every 1m",
+  "command": "echo hello"
+}
+```
+
+- `schedule` uses [robfig/cron](https://pkg.go.dev/github.com/robfig/cron/v3#hdr-CRON_Expression_Format) syntax.
+- `command` is a placeholder string (actual command execution is not implemented; jobs just simulate a long-running task).
+
+## Notes
+- This is a minimal example for demonstration. For production, add persistence, authentication, and real command execution.
+
+# Accessing the Frontend and Swagger UI
+
+- The htmx-based test frontend will be available at http://localhost:8080/ (root path).
+- The Swagger UI will be available at http://localhost:8080/swagger-ui/ (after you enable the route in main.go).
+- The OpenAPI YAML is at http://localhost:8080/swagger.yaml
+
+> **Note:** You must create a `frontend` directory with an `index.html` file for the htmx frontend to work. 

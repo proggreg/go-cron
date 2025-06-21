@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>go-cron Frontend (htmx)</title>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+    <style>
+        body { margin: 2em; }
+        .swagger-link { float: right; }
+    </style>
+</head>
+<body>
+    <nav class="level">
+      <div class="level-left">
+        <div class="level-item">
+          <h1 class="title">go-cron Frontend (htmx)</h1>
+        </div>
+      </div>
+      <div class="level-right">
+        <div class="level-item">
+          <a class="button is-link swagger-link" href="/swagger-ui/" target="_blank">Open Swagger UI</a>
+        </div>
+      </div>
+    </nav>
+
+    <section class="box" style="margin-bottom:2em;">
+      <h2 class="subtitle"><strong>How to Test the API</strong></h2>
+      <ol>
+        <li><strong>List Jobs:</strong> The jobs table below will automatically load all jobs. Click <em>Refresh Jobs</em> to reload the list at any time.</li>
+        <li><strong>Create a Job:</strong> Fill out the <em>Create Job</em> form and click <em>Create Job</em>. The new job will appear in the list.</li>
+        <li><strong>Run a Job:</strong> Click <em>Run Now</em> next to any job to trigger it immediately. The job's status will update to <code>running</code> and then back to <code>scheduled</code> after a few seconds.</li>
+        <li><strong>Advanced Testing:</strong> Click <em>Open Swagger UI</em> (top right) to explore and test all API endpoints interactively, including viewing request/response schemas.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2 class="subtitle">Jobs</h2>
+      <button class="button is-primary" hx-get="/jobs" hx-target="#jobs-list" hx-trigger="click">Refresh Jobs</button>
+      <div id="jobs-list" hx-get="/jobs" hx-trigger="load" hx-target="this">Loading jobs...</div>
+    </section>
+
+    <section style="margin-top:2em;">
+      <h2 class="subtitle">Create Job</h2>
+      <div class="notification is-info">
+        <strong>How to create a job:</strong><br>
+        <ul>
+          <li><strong>Name:</strong> Any label for your job (e.g., <code>Backup</code>).</li>
+          <li><strong>Schedule (cron):</strong> Cron expression for when to run (e.g., <code>@every 1m</code> or <code>0 0 * * *</code> for daily at midnight).</li>
+          <li><strong>Command:</strong> Any text (e.g., <code>echo hello</code>). This is just a label; no real command is run.</li>
+        </ul>
+        <div><strong>Example:</strong></div>
+        <pre>{
+  "name": "Example Job",
+  "schedule": "@every 1m",
+  "command": "echo hello"
+}</pre>
+      </div>
+      <div id="job-message"></div>
+      <form id="create-job-form">
+        <div class="field">
+          <label class="label">Name</label>
+          <div class="control">
+            <input class="input" type="text" name="name" required>
+          </div>
+        </div>
+        <div class="field">
+          <label class="label">Schedule (cron)</label>
+          <div class="control">
+            <input class="input" type="text" name="schedule" placeholder="* * * * *" required>
+          </div>
+        </div>
+        <div class="field">
+          <label class="label">Command</label>
+          <div class="control">
+            <input class="input" type="text" name="command" required>
+          </div>
+        </div>
+        <div class="control">
+          <button class="button is-success" type="button" id="create-job-btn">Create Job</button>
+        </div>
+      </form>
+    </section>
+
+    <script>
+      // Remove htmx:configRequest for job creation (now handled by custom JS)
+
+      document.getElementById('create-job-btn').addEventListener('click', function() {
+        const form = document.getElementById('create-job-form');
+        const data = Object.fromEntries(new FormData(form));
+        fetch('/jobs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        })
+        .then(async res => {
+          if (res.ok) {
+            document.getElementById('job-message').innerHTML = '<div class="notification is-success">Job created successfully!</div>';
+            form.reset();
+            // Refresh jobs list
+            htmx.ajax('GET', '/jobs', { target: '#jobs-list' });
+          } else {
+            const text = await res.text();
+            document.getElementById('job-message').innerHTML = '<div class="notification is-danger">' + text + '</div>';
+          }
+        })
+        .catch(err => {
+          document.getElementById('job-message').innerHTML = '<div class="notification is-danger">' + err + '</div>';
+        });
+      });
+
+      // Render jobs as a table with run buttons
+      document.body.addEventListener('htmx:afterOnLoad', function(evt) {
+        if (evt.target.id === 'jobs-list' && Array.isArray(evt.detail.xhr.response)) {
+          const jobs = evt.detail.xhr.response;
+          let html = '<table class="table is-fullwidth"><thead><tr><th>Name</th><th>Schedule</th><th>Command</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
+          for (const job of jobs) {
+            html += `<tr><td>${job.name}</td><td>${job.schedule}</td><td>${job.command}</td><td>${job.status}</td><td><button class='button is-small is-warning' hx-post='/jobs/${job.id}/run' hx-target='#jobs-list' hx-swap='outerHTML'>Run Now</button></td></tr>`;
+          }
+          html += '</tbody></table>';
+          evt.target.innerHTML = html;
+        }
+      });
+    </script>
+</body>
+</html> 

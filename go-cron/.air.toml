@@ -1,0 +1,12 @@
+# Air configuration for go-cron
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/main"
+  bin = "tmp/main"
+  include_ext = ["go", "yaml", "html"]
+  exclude_dir = ["tmp", "swagger-ui", "frontend/node_modules"]
+
+[log]
+  time = true 
