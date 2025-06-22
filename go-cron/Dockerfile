@@ -1,36 +1,37 @@
 # Build stage
-FROM golang:1.21-alpine AS builder
+FROM golang:1.22 as builder
 
 WORKDIR /app
 
-# Install git (required for go mod) and build tools
-RUN apk add --no-cache git
-
-# Copy go mod and sum files
+# Copy go.mod and go.sum
 COPY go.mod go.sum ./
 RUN go mod download
 
 # Copy the rest of the source code
 COPY . .
 
-# Build the Go app (static binary)
-RUN CGO_ENABLED=0 GOOS=linux go build -o go-cron main.go
+# Install Delve
+RUN go install github.com/go-delve/delve/cmd/dlv@latest
 
-# Final stage
-FROM alpine:latest
+# Build the app with debug flags
+RUN go build -gcflags="all=-N -l" -o main .
+
+# Final image
+FROM golang:1.22
 
 WORKDIR /app
 
-# Copy the built Go binary
-COPY --from=builder /app/go-cron .
+# Copy the built binary and Delve
+COPY --from=builder /app/main .
+COPY --from=builder /go/bin/dlv /go/bin/dlv
 
-# Copy static assets (frontend and swagger-ui)
-COPY frontend ./frontend
-COPY swagger-ui ./swagger-ui
-COPY swagger.yaml ./
+# Copy static/frontend and swagger-ui directories
+COPY --from=builder /app/frontend ./frontend
+COPY --from=builder /app/swagger-ui ./swagger-ui
+COPY --from=builder /app/swagger.yaml ./
 
-# Expose the port the app runs on
-EXPOSE 8080
+# Expose app and Delve ports
+EXPOSE 8080 40000
 
-# Run the Go app
-CMD ["./go-cron"] 
+# Start the app with Delve in headless mode
+CMD ["/go/bin/dlv", "exec", "./main", "--headless", "--listen=:40000", "--api-version=2", "--accept-multiclient", "--log"]

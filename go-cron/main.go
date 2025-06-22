@@ -35,7 +35,12 @@ func main() {
 
 	r := mux.NewRouter()
 
-	r.PathPrefix("/jobs").HandlerFunc(jobsAPIHandler)
+	r.HandleFunc("/jobs/{id}/run", runJobNow).Methods("POST")
+	r.HandleFunc("/jobs/{id}", getJob).Methods("GET")
+	r.HandleFunc("/jobs/{id}", updateJob).Methods("PUT")
+	r.HandleFunc("/jobs/{id}", deleteJob).Methods("DELETE")
+	r.HandleFunc("/jobs", listJobs).Methods("GET")
+	r.HandleFunc("/jobs", createJob).Methods("POST")
 
 	r.PathPrefix("/swagger-ui/").Handler(http.StripPrefix("/swagger-ui/", http.FileServer(http.Dir("swagger-ui"))))
 	r.Handle("/swagger.yaml", http.FileServer(http.Dir(".")))
@@ -44,34 +49,6 @@ func main() {
 
 	log.Println("Server started on :8080")
 	log.Fatal(http.ListenAndServe(":8080", r))
-}
-
-// jobsAPIHandler routes /jobs* requests to the correct handler
-func jobsAPIHandler(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		if r.URL.Path == "/jobs" {
-			listJobs(w, r)
-			return
-		}
-		getJob(w, r)
-	case http.MethodPost:
-		if r.URL.Path == "/jobs" {
-			createJob(w, r)
-			return
-		}
-		if len(r.URL.Path) > len("/jobs/") && r.URL.Path[len(r.URL.Path)-4:] == "/run" {
-			runJobNow(w, r)
-			return
-		}
-		http.NotFound(w, r)
-	case http.MethodPut:
-		updateJob(w, r)
-	case http.MethodDelete:
-		deleteJob(w, r)
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	}
 }
 
 func listJobs(w http.ResponseWriter, r *http.Request) {

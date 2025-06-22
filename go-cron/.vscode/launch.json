@@ -1,0 +1,16 @@
+// .vscode/launch.json
+{
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "Attach to Go in Docker",
+        "type": "go",
+        "request": "attach",
+        "mode": "remote",
+        "remotePath": "/app",         // Path inside the container where your code lives
+        "port": 40000,                // Delve port (must match Dockerfile)
+        "host": "127.0.0.1",          // Localhost, since you map the port with docker run -p
+        "showLog": true
+      }
+    ]
+  }
