@@ -2,6 +2,23 @@
 
 A simple Go backend to manage long-running tasks (jobs) on a cron schedule, with a REST API to manage jobs.
 
+## TODO
+- [ ] Fix Swagger 
+- [ ] Add persistent storage for jobs (e.g., BoltDB, SQLite)
+- [ ] Implement authentication and authorization
+- [ ] Execute real shell commands for jobs (with security considerations)
+- [ ] Add job logs/history endpoint
+- [ ] Add job pause/resume functionality
+- [ ] Add job retry/backoff support
+- [ ] Add unit and integration tests
+- [ ] Add Dockerfile and deployment instructions
+- [ ] Improve error handling and API responses
+- [ ] Add support for job parameters/environment variables
+- [ ] Add support for recurring jobs with limited runs
+- [ ] Add metrics and health endpoints
+- [ ] Improve frontend UI/UX
+
+
 ## Features
 - Schedule jobs using cron expressions
 - Create, list, update, delete, and trigger jobs via HTTP API
