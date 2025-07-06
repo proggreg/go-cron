@@ -70,13 +70,19 @@
         <div class="field">
           <label class="label">Schedule (cron)</label>
           <div class="control">
-            <input class="input" type="text" name="schedule" placeholder="* * * * *" required>
+            <input class="input" type="text" name="schedule" placeholder="@every 1m" required>
           </div>
         </div>
         <div class="field">
           <label class="label">Command</label>
           <div class="control">
             <input class="input" type="text" name="command" required>
+          </div>
+        </div>
+        <div class="field">
+          <label class="label">Webhook URL</label>
+          <div class="control">
+            <input class="input" type="text" name="webhook_url" placeholder="http://your-webhook-url.com">
           </div>
         </div>
         <div class="control">
@@ -111,6 +117,10 @@
       document.getElementById('create-job-btn').addEventListener('click', function() {
         const form = document.getElementById('create-job-form');
         const data = Object.fromEntries(new FormData(form));
+        // Ensure webhook_url is included even if empty
+        if (!data.webhook_url) {
+          data.webhook_url = "";
+        }
         fetch('/jobs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -136,7 +146,7 @@
         if (Array.isArray(evt.detail.xhr.response)) {
           const jobs = evt.detail.xhr.response;
           let debugHtml = 'Jobs JSON:\n' + JSON.stringify(jobs, null, 2) + '\n';
-          let html = '<table class="table is-fullwidth"><thead><tr><th>Name</th><th>Schedule</th><th>Command</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
+          let html = '<table class="table is-fullwidth"><thead><tr><th>Name</th><th>Schedule</th><th>Command</th><th>Status</th><th>Last Webhook Response</th><th>Actions</th></tr></thead><tbody>';
           if (jobs.length === 0) {
             html += '<tr><td colspan="5"><em>No jobs found. Use the Populate Sample Jobs button above to add some test jobs.</em></td></tr>';
           } else {
@@ -149,6 +159,8 @@
                     <div class='field'><label class='label'>Name</label><div class='control'><input class='input' type='text' name='name' value='${job.name}' required></div></div>
                     <div class='field'><label class='label'>Schedule</label><div class='control'><input class='input' type='text' name='schedule' value='${job.schedule}' required></div></div>
                     <div class='field'><label class='label'>Command</label><div class='control'><input class='input' type='text' name='command' value='${job.command}' required></div></div>
+                    <div class='field'><label class='label'>Webhook URL</label><div class='control'><input class='input' type='text' name='webhook_url' value='${job.webhook_url || ''}'></div></div>
+                    <div class='field'><label class='label'>Last Webhook Response</label><div class='control'><textarea class='textarea' name='last_webhook_response' readonly>${job.last_webhook_response || ''}</textarea></div></div>
                     <div class='buttons'>
                       <button class='button is-success' type='submit'>Save</button>
                       <button class='button is-light' type='button' id='cancel-edit-btn'>Cancel</button>
@@ -156,11 +168,11 @@
                   </form>
                 </td></tr>`;
               } else {
-                rowHtml = `<tr><td>${job.name}</td><td>${job.schedule}</td><td>${job.command}</td><td>${job.status}</td><td>
+                rowHtml = `<tr><td>${job.name}</td><td>${job.schedule}</td><td>${job.command}</td><td>${job.status}</td><td>${job.last_webhook_response || 'N/A'}</td><td>
                   <button class='button is-small is-warning' onclick='runJob("${job.id}")'>Run Now</button>
                   <button class='button is-small is-info' onclick='editJob("${job.id}")'>Edit</button>
                   <button class='button is-small is-danger' onclick='deleteJob("${job.id}")'>Delete</button>
-                  <button onclick='alert("Test")'>Test</button>
+                  <button class='button is-small' onclick='showAlert("${job.last_webhook_response || 'No response yet.'}")'>Show Webhook Response</button>
                 </td></tr>`;
               }
               debugHtml += `Row for job ${job.id}:\n` + rowHtml + '\n';
@@ -252,6 +264,11 @@
           .catch(err => {
             document.getElementById('jobs-action-message').innerHTML = '<div class="notification is-danger">' + err + '</div>';
           });
+      };
+
+      // Show alert
+      window.showAlert = function(message) {
+        alert(message);
       };
 
       document.getElementById('populate-sample-jobs-btn').addEventListener('click', function() {

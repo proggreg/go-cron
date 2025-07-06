@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"sync"
@@ -13,14 +15,17 @@ import (
 
 // Job represents a scheduled job
 type Job struct {
-	ID          string       `json:"id"`
-	Name        string       `json:"name"`
-	Schedule    string       `json:"schedule"`
-	Command     string       `json:"command"`
-	LastRun     *time.Time   `json:"last_run,omitempty"`
-	NextRun     *time.Time   `json:"next_run,omitempty"`
-	Status      string       `json:"status"`
-	CronEntryID cron.EntryID `json:"-"`
+	ID             string       `json:"id"`
+	Name           string       `json:"name"`
+	Schedule       string       `json:"schedule"`
+	Command        string       `json:"command"`
+	WebhookURL     string       `json:"webhook_url,omitempty"`
+	WebhookPayload string       `json:"webhook_payload,omitempty"`
+	LastRun        *time.Time   `json:"last_run,omitempty"`
+	NextRun        *time.Time   `json:"next_run,omitempty"`
+	Status         string       `json:"status"`
+	LastWebhookResponse string    `json:"last_webhook_response,omitempty"`
+	CronEntryID    cron.EntryID `json:"-"`
 }
 
 var (
@@ -44,6 +49,14 @@ func main() {
 
 	r.PathPrefix("/swagger-ui/").Handler(http.StripPrefix("/swagger-ui/", http.FileServer(http.Dir("swagger-ui"))))
 	r.Handle("/swagger.yaml", http.FileServer(http.Dir(".")))
+
+	r.HandleFunc("/webhook-test", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Received webhook test request: %s", r.Method)
+		buf := new(bytes.Buffer)
+		buf.ReadFrom(r.Body)
+		log.Printf("Webhook test request body: %s", buf.String())
+		w.WriteHeader(http.StatusOK)
+	}).Methods("POST")
 
 	r.PathPrefix("/").Handler(http.FileServer(http.Dir("frontend")))
 
@@ -120,6 +133,8 @@ func updateJob(w http.ResponseWriter, r *http.Request) {
 	job.Name = update.Name
 	job.Schedule = update.Schedule
 	job.Command = update.Command
+	job.WebhookURL = update.WebhookURL
+	job.WebhookPayload = update.WebhookPayload
 	entryID, err := cronScheduler.AddFunc(job.Schedule, func() {
 		executeJob(job)
 	})
@@ -167,7 +182,48 @@ func executeJob(job *Job) {
 	jobsMutex.Unlock()
 	// Simulate long-running task
 	time.Sleep(5 * time.Second)
+
+	if job.WebhookURL != "" {
+		go sendWebhook(job)
+	}
+
 	jobsMutex.Lock()
 	job.Status = "scheduled"
 	jobsMutex.Unlock()
+}
+
+func sendWebhook(job *Job) {
+	payload := []byte(job.WebhookPayload)
+	req, err := http.NewRequest("POST", job.WebhookURL, bytes.NewBuffer(payload))
+	if err != nil {
+		log.Printf("Error creating webhook request for job %s: %v", job.ID, err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("Error sending webhook for job %s: %v", job.ID, err)
+		return
+	}
+	defer resp.Body.Close()
+
+	responseBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			log.Printf("Error reading webhook response body for job %s: %v", job.ID, err)
+			return
+		}
+
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+					log.Printf("Webhook sent successfully for job %s. Response: %s", job.ID, string(responseBody))
+		jobsMutex.Lock()
+		job.LastWebhookResponse = string(responseBody)
+		jobsMutex.Unlock()
+	} else {
+		log.Printf("Webhook for job %s failed with status code: %d. Response: %s", job.ID, resp.StatusCode, string(responseBody))
+		jobsMutex.Lock()
+		job.LastWebhookResponse = string(responseBody)
+		jobsMutex.Unlock()
+	}
 }

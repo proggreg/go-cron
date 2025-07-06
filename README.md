@@ -55,12 +55,17 @@ The server will start on `http://localhost:8080`.
 {
   "name": "Example Job",
   "schedule": "@every 1m",
-  "command": "echo hello"
+  "command": "echo hello",
+  "webhook_url": "https://your-webhook-url.com",
+  "webhook_payload": "{\"message\": \"Job finished!\"}"
 }
 ```
 
 - `schedule` uses [robfig/cron](https://pkg.go.dev/github.com/robfig/cron/v3#hdr-CRON_Expression_Format) syntax.
 - `command` is a placeholder string (actual command execution is not implemented; jobs just simulate a long-running task).
+- `webhook_url` (optional) is the URL to send a POST request to when the job finishes.
+- `webhook_payload` (optional) is the JSON payload to send with the webhook.
+
 
 ## Notes
 - This is a minimal example for demonstration. For production, add persistence, authentication, and real command execution.
