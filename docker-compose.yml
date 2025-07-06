@@ -1,12 +1,13 @@
 version: "3.8"
 services:
   go-cron:
-    image: golang:1.24-alpine
+    image: go-cron
+    build: .
     working_dir: /app
     volumes:
       - ./:/app
     ports:
       - "8080:8080"
-    command: sh -c "go install github.com/air-verse/air@latest && air -c .air.toml"
+    command: air -c .air.toml
     environment:
       - AIR_PORT=8080 
