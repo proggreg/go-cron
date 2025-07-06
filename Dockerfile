@@ -34,4 +34,4 @@ COPY --from=builder /app/swagger.yaml ./
 EXPOSE 8080 40000
 
 # Start the app with Delve in headless mode
-CMD ["/go/bin/dlv", "exec", "./main", "--headless", "--listen=:40000", "--api-version=2", "--accept-multiclient", "--log"]
+CMD ["./main"]
