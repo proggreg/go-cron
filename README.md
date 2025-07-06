@@ -72,5 +72,3 @@ The server will start on `http://localhost:8080`.
 - The OpenAPI YAML is at http://localhost:8080/swagger.yaml
 
 > **Note:** You must create a `frontend` directory with an `index.html` file for the htmx frontend to work. 
-
-This is a test change. 
