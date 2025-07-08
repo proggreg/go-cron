@@ -6,8 +6,12 @@ services:
     working_dir: /app
     volumes:
       - ./:/app
+      - jobs_data:/app/jobs.json
     ports:
       - "8080:8080"
     command: air -c .air.toml
     environment:
-      - AIR_PORT=8080 
+      - AIR_PORT=8080
+
+volumes:
+  jobs_data: 

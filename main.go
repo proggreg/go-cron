@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -32,9 +33,58 @@ var (
 	jobs          = make(map[string]*Job)
 	jobsMutex     sync.RWMutex
 	cronScheduler = cron.New()
+	jobsFile      = "jobs.json"
 )
 
+func saveJobs() error {
+	jobsMutex.RLock()
+	defer jobsMutex.RUnlock()
+
+	data, err := json.MarshalIndent(jobs, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(jobsFile, data, 0644)
+}
+
+func loadJobs() error {
+	jobsMutex.Lock()
+	defer jobsMutex.Unlock()
+
+	data, err := os.ReadFile(jobsFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Printf("Jobs file %s not found, starting with empty jobs.", jobsFile)
+			return nil // File doesn't exist, start with empty jobs
+		}
+		return err
+	}
+
+	var loadedJobs map[string]*Job
+	if err := json.Unmarshal(data, &loadedJobs); err != nil {
+		return err
+	}
+
+	jobs = loadedJobs
+	// Re-add jobs to cron scheduler
+	for _, job := range jobs {
+		entryID, err := cronScheduler.AddFunc(job.Schedule, func(j *Job) func() {
+			return func() { executeJob(j) }
+		}(job))
+		if err != nil {
+			log.Printf("Error re-scheduling job %s: %v", job.ID, err)
+			continue
+		}
+		job.CronEntryID = entryID
+	}
+	return nil
+}
+
 func main() {
+	if err := loadJobs(); err != nil {
+		log.Fatalf("Error loading jobs: %v", err)
+	}
 	cronScheduler.Start()
 	defer cronScheduler.Stop()
 
@@ -98,6 +148,10 @@ func createJob(w http.ResponseWriter, r *http.Request) {
 	jobs[job.ID] = &job
 	jobsMutex.Unlock()
 
+	if err := saveJobs(); err != nil {
+		log.Printf("Error saving jobs: %v", err)
+	}
+
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(job)
 }
@@ -146,6 +200,9 @@ func updateJob(w http.ResponseWriter, r *http.Request) {
 	jobsMutex.Lock()
 	jobs[id] = job
 	jobsMutex.Unlock()
+	if err := saveJobs(); err != nil {
+		log.Printf("Error saving jobs: %v", err)
+	}
 	json.NewEncoder(w).Encode(job)
 }
 
@@ -158,6 +215,9 @@ func deleteJob(w http.ResponseWriter, r *http.Request) {
 		delete(jobs, id)
 	}
 	jobsMutex.Unlock()
+	if err := saveJobs(); err != nil {
+		log.Printf("Error saving jobs: %v", err)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
