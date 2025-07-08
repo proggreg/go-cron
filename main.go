@@ -33,7 +33,7 @@ var (
 	jobs          = make(map[string]*Job)
 	jobsMutex     sync.RWMutex
 	cronScheduler = cron.New()
-	jobsFile      = "jobs.json"
+	jobsFile      = "data/jobs.json"
 )
 
 func saveJobs() error {
@@ -85,6 +85,12 @@ func main() {
 	if err := loadJobs(); err != nil {
 		log.Fatalf("Error loading jobs: %v", err)
 	}
+
+	// Save jobs immediately after loading and re-scheduling to persist new CronEntryIDs
+	if err := saveJobs(); err != nil {
+		log.Printf("Error saving jobs after load: %v", err)
+	}
+
 	cronScheduler.Start()
 	defer cronScheduler.Stop()
 
