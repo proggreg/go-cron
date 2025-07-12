@@ -61,6 +61,12 @@ func loadJobs() error {
 		return err
 	}
 
+	// If the file is empty, start with an empty map of jobs.
+	if len(data) == 0 {
+		jobs = make(map[string]*Job)
+		return nil
+	}
+
 	var loadedJobs map[string]*Job
 	if err := json.Unmarshal(data, &loadedJobs); err != nil {
 		return err
