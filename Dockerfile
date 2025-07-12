@@ -33,6 +33,7 @@ COPY --from=builder /go/bin/air /usr/local/bin/air
 COPY --from=builder /app/frontend ./frontend
 COPY --from=builder /app/swagger-ui ./swagger-ui
 COPY --from=builder /app/swagger.yaml ./
+COPY --from=builder /app/data ./data
 
 # Expose app and Delve ports
 EXPOSE 8080 40000
