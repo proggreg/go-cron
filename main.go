@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -10,30 +12,34 @@ import (
 	"sync"
 	"time"
 
+	"cloud.google.com/go/scheduler/apiv1"
 	"github.com/gorilla/mux"
-	"github.com/robfig/cron/v3"
+	schedulerpb "google.golang.org/genproto/googleapis/cloud/scheduler/v1"
 )
 
 // Job represents a scheduled job
 type Job struct {
-	ID             string       `json:"id"`
-	Name           string       `json:"name"`
-	Schedule       string       `json:"schedule"`
-	Command        string       `json:"command"`
-	WebhookURL     string       `json:"webhook_url,omitempty"`
-	WebhookPayload string       `json:"webhook_payload,omitempty"`
-	LastRun        *time.Time   `json:"last_run,omitempty"`
-	NextRun        *time.Time   `json:"next_run,omitempty"`
-	Status         string       `json:"status"`
-	LastWebhookResponse string    `json:"last_webhook_response,omitempty"`
-	CronEntryID    cron.EntryID `json:"-"`
+	ID                  string     `json:"id"`
+	Name                string     `json:"name"`
+	Schedule            string     `json:"schedule"`
+	Command             string     `json:"command"`
+	WebhookURL          string     `json:"webhook_url,omitempty"`
+	WebhookPayload      string     `json:"webhook_payload,omitempty"`
+	LastRun             *time.Time `json:"last_run,omitempty"`
+	NextRun             *time.Time `json:"next_run,omitempty"`
+	Status              string     `json:"status"`
+	LastWebhookResponse string     `json:"last_webhook_response,omitempty"`
+	CloudSchedulerJobName string   `json:"cloud_scheduler_job_name,omitempty"`
 }
 
 var (
-	jobs          = make(map[string]*Job)
-	jobsMutex     sync.RWMutex
-	cronScheduler = cron.New()
-	jobsFile      = "data/jobs.json"
+	jobs            = make(map[string]*Job)
+	jobsMutex       sync.RWMutex
+	schedulerClient *scheduler.CloudSchedulerClient
+	jobsFile        = "data/jobs.json"
+	gcpProjectID    = os.Getenv("GCP_PROJECT_ID")
+	gcpLocationID   = os.Getenv("GCP_LOCATION_ID")
+	gcpServiceURL   = os.Getenv("GCP_SERVICE_URL")
 )
 
 func saveJobs() error {
@@ -73,21 +79,18 @@ func loadJobs() error {
 	}
 
 	jobs = loadedJobs
-	// Re-add jobs to cron scheduler
-	for _, job := range jobs {
-		entryID, err := cronScheduler.AddFunc(job.Schedule, func(j *Job) func() {
-			return func() { executeJob(j) }
-		}(job))
-		if err != nil {
-			log.Printf("Error re-scheduling job %s: %v", job.ID, err)
-			continue
-		}
-		job.CronEntryID = entryID
-	}
 	return nil
 }
 
 func main() {
+	ctx := context.Background()
+	var err error
+	schedulerClient, err = scheduler.NewCloudSchedulerClient(ctx)
+	if err != nil {
+		log.Fatalf("Error creating Cloud Scheduler client: %v", err)
+	}
+	defer schedulerClient.Close()
+
 	if err := loadJobs(); err != nil {
 		log.Fatalf("Error loading jobs: %v", err)
 	}
@@ -97,12 +100,9 @@ func main() {
 		log.Printf("Error saving jobs after load: %v", err)
 	}
 
-	cronScheduler.Start()
-	defer cronScheduler.Stop()
-
 	r := mux.NewRouter()
 
-	r.HandleFunc("/jobs/{id}/run", runJobNow).Methods("POST")
+	r.HandleFunc("/jobs/{id}/run", executeJobHandler).Methods("POST")
 	r.HandleFunc("/jobs/{id}", getJob).Methods("GET")
 	r.HandleFunc("/jobs/{id}", updateJob).Methods("PUT")
 	r.HandleFunc("/jobs/{id}", deleteJob).Methods("DELETE")
@@ -147,14 +147,31 @@ func createJob(w http.ResponseWriter, r *http.Request) {
 	}
 	job.Status = "scheduled"
 
-	entryID, err := cronScheduler.AddFunc(job.Schedule, func() {
-		executeJob(&job)
+	// Create a job in Google Cloud Scheduler
+	parent := fmt.Sprintf("projects/%s/locations/%s", gcpProjectID, gcpLocationID)
+	cloudSchedulerJob := &schedulerpb.Job{
+		Name:        fmt.Sprintf("%s/jobs/%s", parent, job.ID),
+		Description: job.Name,
+		Schedule:    job.Schedule,
+		Target: &schedulerpb.Job_HttpTarget{
+			HttpTarget: &schedulerpb.HttpTarget{
+				Uri:        fmt.Sprintf("%s/jobs/%s/run", gcpServiceURL, job.ID),
+				HttpMethod: schedulerpb.HttpMethod_POST,
+			},
+		},
+	}
+
+	ctx := context.Background()
+	createdJob, err := schedulerClient.CreateJob(ctx, &schedulerpb.CreateJobRequest{
+		Parent: parent,
+		Job:    cloudSchedulerJob,
 	})
 	if err != nil {
-		http.Error(w, "Invalid cron schedule", http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("Error creating Cloud Scheduler job: %v", err), http.StatusInternalServerError)
 		return
 	}
-	job.CronEntryID = entryID
+
+	job.CloudSchedulerJobName = createdJob.Name
 
 	jobsMutex.Lock()
 	jobs[job.ID] = &job
@@ -194,24 +211,40 @@ func updateJob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	// Remove old cron job
-	cronScheduler.Remove(job.CronEntryID)
+
+	// Update the job in Google Cloud Scheduler
+	cloudSchedulerJob := &schedulerpb.Job{
+		Name:        job.CloudSchedulerJobName,
+		Description: update.Name,
+		Schedule:    update.Schedule,
+		Target: &schedulerpb.Job_HttpTarget{
+			HttpTarget: &schedulerpb.HttpTarget{
+				Uri:        fmt.Sprintf("%s/jobs/%s/run", gcpServiceURL, job.ID),
+				HttpMethod: schedulerpb.HttpMethod_POST,
+			},
+		},
+	}
+
+	ctx := context.Background()
+	updatedJob, err := schedulerClient.UpdateJob(ctx, &schedulerpb.UpdateJobRequest{
+		Job: cloudSchedulerJob,
+	})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error updating Cloud Scheduler job: %v", err), http.StatusInternalServerError)
+		return
+	}
+
 	job.Name = update.Name
 	job.Schedule = update.Schedule
 	job.Command = update.Command
 	job.WebhookURL = update.WebhookURL
 	job.WebhookPayload = update.WebhookPayload
-	entryID, err := cronScheduler.AddFunc(job.Schedule, func() {
-		executeJob(job)
-	})
-	if err != nil {
-		http.Error(w, "Invalid cron schedule", http.StatusBadRequest)
-		return
-	}
-	job.CronEntryID = entryID
+	job.CloudSchedulerJobName = updatedJob.Name
+
 	jobsMutex.Lock()
 	jobs[id] = job
 	jobsMutex.Unlock()
+
 	if err := saveJobs(); err != nil {
 		log.Printf("Error saving jobs: %v", err)
 	}
@@ -223,7 +256,16 @@ func deleteJob(w http.ResponseWriter, r *http.Request) {
 	jobsMutex.Lock()
 	job, ok := jobs[id]
 	if ok {
-		cronScheduler.Remove(job.CronEntryID)
+		// Delete the job from Google Cloud Scheduler
+		ctx := context.Background()
+		err := schedulerClient.DeleteJob(ctx, &schedulerpb.DeleteJobRequest{
+			Name: job.CloudSchedulerJobName,
+		})
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error deleting Cloud Scheduler job: %v", err), http.StatusInternalServerError)
+			jobsMutex.Unlock()
+			return
+		}
 		delete(jobs, id)
 	}
 	jobsMutex.Unlock()
@@ -233,7 +275,7 @@ func deleteJob(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func runJobNow(w http.ResponseWriter, r *http.Request) {
+func executeJobHandler(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 	jobsMutex.RLock()
 	job, ok := jobs[id]
@@ -242,16 +284,13 @@ func runJobNow(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	go executeJob(job)
-	w.WriteHeader(http.StatusAccepted)
-}
 
-func executeJob(job *Job) {
 	jobsMutex.Lock()
 	now := time.Now()
 	job.LastRun = &now
 	job.Status = "running"
 	jobsMutex.Unlock()
+
 	// Simulate long-running task
 	time.Sleep(5 * time.Second)
 
@@ -262,6 +301,8 @@ func executeJob(job *Job) {
 	jobsMutex.Lock()
 	job.Status = "scheduled"
 	jobsMutex.Unlock()
+
+	w.WriteHeader(http.StatusOK)
 }
 
 func sendWebhook(job *Job) {
